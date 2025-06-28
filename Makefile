@@ -9,7 +9,7 @@ run:
 
 .PHONY: build
 build:
-	$(GO) build -mod=mod -o bin/example examples/ether.go
+	$(GO) build -mod=mod -o bin/example cmd/example/main.go
 
 .PHONY: build-docker-image
 build-docker-image:

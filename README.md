@@ -45,7 +45,7 @@ func main() {
 	}
 
 	// Create service with first account
-	service, err := pkg.NewEthereumService(accounts[0], config)
+	service, err := pkg.NewEthereumClient(accounts[0], config)
 	if err != nil {
 		log.Fatal("Failed to create service:", err)
 	}
@@ -116,7 +116,7 @@ ETH_TRANSACTION_TICKER_SECONDS=3     # 3 seconds
 ### Service Interface
 
 ```go
-type EthereumService interface {
+type EthereumClient interface {
 	// SendTransaction sends a signed transaction to the network
 	SendTransaction(signedTx *types.Transaction) (*TransactionReceipt, error)
 
@@ -214,7 +214,7 @@ if len(accounts) < 2 {
 }
 
 // Create service with specific account
-service, err := pkg.NewEthereumService(accounts[0], config)
+service, err := pkg.NewEthereumClient(accounts[0], config)
 if err != nil {
 	log.Fatal(err)
 }
@@ -240,7 +240,7 @@ if err != nil {
 	log.Fatal(err)
 }
 
-service, err := pkg.NewEthereumService(accounts[0], config)
+service, err := pkg.NewEthereumClient(accounts[0], config)
 if err != nil {
 	log.Fatal(err)
 }
@@ -261,7 +261,7 @@ if err != nil {
 	log.Fatal(err)
 }
 
-service, err := pkg.NewEthereumService(accounts[0], config)
+service, err := pkg.NewEthereumClient(accounts[0], config)
 if err != nil {
 	log.Fatal(err)
 }
@@ -301,7 +301,7 @@ func main() {
 	}
 
 	// Create service
-	service, err := pkg.NewEthereumService(accounts[0], config)
+	service, err := pkg.NewEthereumClient(accounts[0], config)
 	if err != nil {
 		log.Fatal("Failed to create service:", err)
 	}
@@ -401,7 +401,7 @@ if err != nil {
 	log.Fatal("Configuration error:", err)
 }
 
-service, err := pkg.NewEthereumService(accounts[0], config)
+service, err := pkg.NewEthereumClient(accounts[0], config)
 if err != nil {
 	// Handle service creation errors
 	log.Fatal("Service creation error:", err)

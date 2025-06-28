@@ -43,7 +43,7 @@ func main() {
 	receiver := accounts[1]
 
 	// --- Create Service ---
-	service, err := pkg.NewEthereumService(sender, config)
+	service, err := pkg.NewEthereumClient(sender, config)
 	if err != nil {
 		log.Fatal("Failed to create service:", err)
 	}

@@ -15,7 +15,7 @@ import (
 	"github.com/ethereum/go-ethereum/ethclient"
 )
 
-type EthereumService interface {
+type EthereumClient interface {
 	// SendTransaction sends a signed transaction to the network
 	SendTransaction(signedTx *types.Transaction) (*TransactionReceipt, error)
 
@@ -35,7 +35,7 @@ type EthereumService interface {
 	Close()
 }
 
-type ethereumService struct {
+type ethereumClient struct {
 	client  *ethclient.Client
 	ctx     context.Context
 	chainId int64
@@ -43,7 +43,7 @@ type ethereumService struct {
 	config  *config
 }
 
-func NewEthereumService(account *Account, cfg *config) (EthereumService, error) {
+func NewEthereumClient(account *Account, cfg *config) (EthereumClient, error) {
 	ctx := context.Background()
 	chainId := account.ChainId
 
@@ -91,7 +91,7 @@ func NewEthereumService(account *Account, cfg *config) (EthereumService, error) 
 		return nil, fmt.Errorf("expected chain ID %d, got %d", chainId, clientChainId.Int64())
 	}
 
-	return &ethereumService{
+	return &ethereumClient{
 		client:  client,
 		ctx:     ctx,
 		chainId: clientChainId.Int64(),
@@ -101,7 +101,7 @@ func NewEthereumService(account *Account, cfg *config) (EthereumService, error) 
 }
 
 // SendTransaction sends a signed transaction to the network
-func (es *ethereumService) SendTransaction(signedTx *types.Transaction) (*TransactionReceipt, error) {
+func (es *ethereumClient) SendTransaction(signedTx *types.Transaction) (*TransactionReceipt, error) {
 	// Send the transaction
 	err := es.client.SendTransaction(es.ctx, signedTx)
 	if err != nil {
@@ -118,7 +118,7 @@ func (es *ethereumService) SendTransaction(signedTx *types.Transaction) (*Transa
 }
 
 // WaitForTransaction waits for a transaction to be mined and returns the receipt
-func (es *ethereumService) WaitForTransaction(hash common.Hash) (*TransactionReceipt, error) {
+func (es *ethereumClient) WaitForTransaction(hash common.Hash) (*TransactionReceipt, error) {
 	receipt, err := es.waitForTransaction(hash)
 	if err != nil {
 		return nil, err
@@ -142,7 +142,7 @@ func (es *ethereumService) WaitForTransaction(hash common.Hash) (*TransactionRec
 }
 
 // SignTransaction signs a transaction with the service's private key
-func (es *ethereumService) SignTransaction(tx *Transaction) (*types.Transaction, error) {
+func (es *ethereumClient) SignTransaction(tx *Transaction) (*types.Transaction, error) {
 	// Get nonce if not provided
 	if tx.Nonce == 0 {
 		nonce, err := es.client.PendingNonceAt(es.ctx, tx.From)
@@ -229,7 +229,7 @@ func (es *ethereumService) SignTransaction(tx *Transaction) (*types.Transaction,
 }
 
 // calculateOptimalFees calculates optimal gas fees based on network conditions
-func (es *ethereumService) calculateOptimalFees(tx *Transaction) error {
+func (es *ethereumClient) calculateOptimalFees(tx *Transaction) error {
 	// Get latest header for base fee
 	header, err := es.client.HeaderByNumber(es.ctx, nil)
 	if err != nil {
@@ -264,7 +264,7 @@ func (es *ethereumService) calculateOptimalFees(tx *Transaction) error {
 }
 
 // getFixedPriorityFee returns a fixed priority fee based on the network
-func (es *ethereumService) getFixedPriorityFee() *big.Int {
+func (es *ethereumClient) getFixedPriorityFee() *big.Int {
 	switch es.chainId {
 	case 1: // Ethereum mainnet
 		return es.config.PriorityFeeMainnet()
@@ -276,7 +276,7 @@ func (es *ethereumService) getFixedPriorityFee() *big.Int {
 }
 
 // validateFees does basic fee validation
-func (es *ethereumService) validateFees(tx *Transaction) error {
+func (es *ethereumClient) validateFees(tx *Transaction) error {
 	if tx.MaxFeePerGas == nil {
 		return nil // Legacy transaction
 	}
@@ -291,7 +291,7 @@ func (es *ethereumService) validateFees(tx *Transaction) error {
 }
 
 // GetBalance returns the ETH balance of an address
-func (es *ethereumService) GetBalance(address common.Address) (*big.Int, error) {
+func (es *ethereumClient) GetBalance(address common.Address) (*big.Int, error) {
 	balance, err := es.client.BalanceAt(es.ctx, address, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get balance: %w", err)
@@ -301,7 +301,7 @@ func (es *ethereumService) GetBalance(address common.Address) (*big.Int, error) 
 }
 
 // waitForTransaction waits for a transaction to be mined
-func (es *ethereumService) waitForTransaction(hash common.Hash) (*TransactionReceipt, error) {
+func (es *ethereumClient) waitForTransaction(hash common.Hash) (*TransactionReceipt, error) {
 	timeout := time.Duration(es.config.TransactionTimeoutSeconds()) * time.Second
 	tickerInterval := time.Duration(es.config.TransactionTickerSeconds()) * time.Second
 
@@ -323,7 +323,7 @@ func (es *ethereumService) waitForTransaction(hash common.Hash) (*TransactionRec
 }
 
 // GetTransactionReceipt returns the receipt for a transaction if it exists
-func (es *ethereumService) GetTransactionReceipt(hash common.Hash) (*TransactionReceipt, error) {
+func (es *ethereumClient) GetTransactionReceipt(hash common.Hash) (*TransactionReceipt, error) {
 	receipt, err := es.client.TransactionReceipt(es.ctx, hash)
 	if err != nil {
 		return nil, fmt.Errorf("transaction not found or pending: %w", err)
@@ -347,7 +347,7 @@ func (es *ethereumService) GetTransactionReceipt(hash common.Hash) (*Transaction
 }
 
 // Close closes the Ethereum client connection
-func (es *ethereumService) Close() {
+func (es *ethereumClient) Close() {
 	if es.ctx != nil {
 		es.ctx.Done() // Signal context cancellation
 		es.ctx = nil  // Prevent further use
