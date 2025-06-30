@@ -1,4 +1,4 @@
-package pkg
+package eth
 
 import (
 	"context"
@@ -15,11 +15,11 @@ import (
 	"github.com/ethereum/go-ethereum/ethclient"
 )
 
-type EthereumClient interface {
+type GhostClient interface {
 	// SendTransaction sends a signed transaction to the network
 	SendTransaction(signedTx *types.Transaction) (*TransactionReceipt, error)
 
-	// SignTransaction signs a transaction with the service's private key
+	// SignTransaction signs a transaction with the client's private key
 	SignTransaction(tx *Transaction) (*types.Transaction, error)
 
 	// GetBalance returns the ETH balance of an address
@@ -35,7 +35,7 @@ type EthereumClient interface {
 	Close()
 }
 
-type ethereumClient struct {
+type ghostClient struct {
 	client  *ethclient.Client
 	ctx     context.Context
 	chainId int64
@@ -43,7 +43,10 @@ type ethereumClient struct {
 	config  *config
 }
 
-func NewEthereumClient(account *Account, cfg *config) (EthereumClient, error) {
+func NewGhostClient(account *Account, cfg *config) (GhostClient, error) {
+	// Configure logging to output to stdout with timestamps
+	log.SetDefault(log.New())
+
 	ctx := context.Background()
 	chainId := account.ChainId
 
@@ -64,13 +67,6 @@ func NewEthereumClient(account *Account, cfg *config) (EthereumClient, error) {
 		return nil, fmt.Errorf("account public key is not set")
 	}
 
-	// -- Connect to Ethereum client
-	// HTTP_PROXY and HTTPS_PROXY environment variables are automatically used by ethclient.DialContext
-	client, err := ethclient.DialContext(ctx, cfg.RPCURL())
-	if err != nil {
-		return nil, fmt.Errorf("failed to connect to Ethereum network: %w", err)
-	}
-
 	// Log proxy usage if configured
 	if os.Getenv("HTTP_PROXY") != "" || os.Getenv("HTTPS_PROXY") != "" {
 		log.Info("Connected to Ethereum network via proxy",
@@ -80,7 +76,16 @@ func NewEthereumClient(account *Account, cfg *config) (EthereumClient, error) {
 		log.Info("Connected to Ethereum network directly")
 	}
 
+	// -- Connect to Ethereum client
+	// HTTP_PROXY and HTTPS_PROXY environment variables are automatically used by ethclient.DialContext
+	log.Info("Connecting to Ethereum RPC", "url", cfg.RPCURL())
+	client, err := ethclient.DialContext(ctx, cfg.RPCURL())
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to Ethereum network: %w", err)
+	}
+
 	// -- Verify conection and get chain ID
+	log.Info("Verifying connection and getting chain ID")
 	clientChainId, err := client.ChainID(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get chain ID: %w", err)
@@ -91,7 +96,11 @@ func NewEthereumClient(account *Account, cfg *config) (EthereumClient, error) {
 		return nil, fmt.Errorf("expected chain ID %d, got %d", chainId, clientChainId.Int64())
 	}
 
-	return &ethereumClient{
+	log.Info("Successfully connected to Ethereum network",
+		"chain_id", clientChainId.Int64(),
+		"account", account.Address.Hex())
+
+	return &ghostClient{
 		client:  client,
 		ctx:     ctx,
 		chainId: clientChainId.Int64(),
@@ -101,12 +110,17 @@ func NewEthereumClient(account *Account, cfg *config) (EthereumClient, error) {
 }
 
 // SendTransaction sends a signed transaction to the network
-func (es *ethereumClient) SendTransaction(signedTx *types.Transaction) (*TransactionReceipt, error) {
+func (es *ghostClient) SendTransaction(signedTx *types.Transaction) (*TransactionReceipt, error) {
+	log.Info("Sending transaction to network", "hash", signedTx.Hash().Hex())
+
 	// Send the transaction
 	err := es.client.SendTransaction(es.ctx, signedTx)
 	if err != nil {
+		log.Error("Failed to send transaction", "error", err)
 		return nil, fmt.Errorf("failed to send transaction: %w", err)
 	}
+
+	log.Info("Transaction sent successfully", "hash", signedTx.Hash().Hex())
 
 	// Return immediately with transaction hash
 	return &TransactionReceipt{
@@ -118,7 +132,7 @@ func (es *ethereumClient) SendTransaction(signedTx *types.Transaction) (*Transac
 }
 
 // WaitForTransaction waits for a transaction to be mined and returns the receipt
-func (es *ethereumClient) WaitForTransaction(hash common.Hash) (*TransactionReceipt, error) {
+func (es *ghostClient) WaitForTransaction(hash common.Hash) (*TransactionReceipt, error) {
 	receipt, err := es.waitForTransaction(hash)
 	if err != nil {
 		return nil, err
@@ -141,19 +155,25 @@ func (es *ethereumClient) WaitForTransaction(hash common.Hash) (*TransactionRece
 	}, nil
 }
 
-// SignTransaction signs a transaction with the service's private key
-func (es *ethereumClient) SignTransaction(tx *Transaction) (*types.Transaction, error) {
+// SignTransaction signs a transaction with the client's private key
+func (es *ghostClient) SignTransaction(tx *Transaction) (*types.Transaction, error) {
+	log.Info("Starting transaction signing process", "from", tx.From.Hex(), "to", tx.To.Hex())
+
 	// Get nonce if not provided
 	if tx.Nonce == 0 {
+		log.Info("Getting nonce for address", "address", tx.From.Hex())
 		nonce, err := es.client.PendingNonceAt(es.ctx, tx.From)
 		if err != nil {
+			log.Error("Failed to get nonce", "error", err)
 			return nil, fmt.Errorf("failed to get nonce: %w", err)
 		}
 		tx.Nonce = nonce
+		log.Info("Got nonce", "nonce", nonce)
 	}
 
 	// Estimate gas if not provided
 	if tx.GasLimit == 0 {
+		log.Info("Estimating gas for transaction")
 		msg := ethereum.CallMsg{
 			From:  tx.From,
 			To:    &tx.To,
@@ -163,6 +183,7 @@ func (es *ethereumClient) SignTransaction(tx *Transaction) (*types.Transaction, 
 
 		gasLimit, err := es.client.EstimateGas(es.ctx, msg)
 		if err != nil {
+			log.Error("Failed to estimate gas", "error", err)
 			return nil, fmt.Errorf("failed to estimate gas: %w", err)
 		}
 
@@ -170,24 +191,30 @@ func (es *ethereumClient) SignTransaction(tx *Transaction) (*types.Transaction, 
 		var buffer float64
 		if len(tx.Data) == 0 {
 			buffer = es.config.GasLimitBufferSimple() // Configurable buffer for simple ETH transfers
+			log.Info("Using simple transaction buffer", "buffer", buffer)
 		} else {
 			buffer = es.config.GasLimitBufferComplex() // Configurable buffer for complex transactions
+			log.Info("Using complex transaction buffer", "buffer", buffer)
 		}
 		tx.GasLimit = uint64(float64(gasLimit) * buffer)
+		log.Info("Gas limit calculated", "estimated", gasLimit, "with_buffer", tx.GasLimit)
 
 		// Validate against network gas limit, transaction will get blocked if goes above it
 		header, err := es.client.HeaderByNumber(es.ctx, nil)
 		if err == nil && header.GasLimit > 0 {
 			maxGas := header.GasLimit * 2 / 3 // Use 2/3 of block gas limit
 			if tx.GasLimit > maxGas {
+				log.Error("Gas limit too high", "gas_limit", tx.GasLimit, "max_allowed", maxGas)
 				return nil, fmt.Errorf("gas limit %d exceeds maximum allowed %d", tx.GasLimit, maxGas)
 			}
 		}
 	}
 
 	// Calulate fees based on network conditions
+	log.Info("Calculating optimal fees")
 	err := es.calculateOptimalFees(tx)
 	if err != nil {
+		log.Error("Failed to calculate fees", "error", err)
 		return nil, fmt.Errorf("failed to calculate fees: %w", err)
 	}
 
@@ -195,6 +222,9 @@ func (es *ethereumClient) SignTransaction(tx *Transaction) (*types.Transaction, 
 
 	if tx.MaxFeePerGas != nil && tx.MaxPriorityFeePerGas != nil {
 		// EIP-1559 transaction
+		log.Info("Creating EIP-1559 transaction",
+			"max_fee_per_gas", tx.MaxFeePerGas.String(),
+			"max_priority_fee_per_gas", tx.MaxPriorityFeePerGas.String())
 		ethereumTx = types.NewTx(&types.DynamicFeeTx{
 			ChainID:   big.NewInt(es.chainId),
 			Nonce:     tx.Nonce,
@@ -207,6 +237,7 @@ func (es *ethereumClient) SignTransaction(tx *Transaction) (*types.Transaction, 
 		})
 	} else if tx.GasPrice != nil {
 		// Legacy transaction
+		log.Info("Creating legacy transaction", "gas_price", tx.GasPrice.String())
 		ethereumTx = types.NewTransaction(
 			tx.Nonce,
 			tx.To,
@@ -220,16 +251,19 @@ func (es *ethereumClient) SignTransaction(tx *Transaction) (*types.Transaction, 
 	}
 
 	// Sign the transaction
+	log.Info("Signing transaction")
 	signedTx, err := types.SignTx(ethereumTx, types.LatestSignerForChainID(big.NewInt(es.chainId)), es.account.PrivateKey)
 	if err != nil {
+		log.Error("Failed to sign transaction", "error", err)
 		return nil, fmt.Errorf("failed to sign transaction: %w", err)
 	}
 
+	log.Info("Transaction signed successfully", "hash", signedTx.Hash().Hex())
 	return signedTx, nil
 }
 
 // calculateOptimalFees calculates optimal gas fees based on network conditions
-func (es *ethereumClient) calculateOptimalFees(tx *Transaction) error {
+func (es *ghostClient) calculateOptimalFees(tx *Transaction) error {
 	// Get latest header for base fee
 	header, err := es.client.HeaderByNumber(es.ctx, nil)
 	if err != nil {
@@ -264,7 +298,7 @@ func (es *ethereumClient) calculateOptimalFees(tx *Transaction) error {
 }
 
 // getFixedPriorityFee returns a fixed priority fee based on the network
-func (es *ethereumClient) getFixedPriorityFee() *big.Int {
+func (es *ghostClient) getFixedPriorityFee() *big.Int {
 	switch es.chainId {
 	case 1: // Ethereum mainnet
 		return es.config.PriorityFeeMainnet()
@@ -276,7 +310,7 @@ func (es *ethereumClient) getFixedPriorityFee() *big.Int {
 }
 
 // validateFees does basic fee validation
-func (es *ethereumClient) validateFees(tx *Transaction) error {
+func (es *ghostClient) validateFees(tx *Transaction) error {
 	if tx.MaxFeePerGas == nil {
 		return nil // Legacy transaction
 	}
@@ -291,7 +325,7 @@ func (es *ethereumClient) validateFees(tx *Transaction) error {
 }
 
 // GetBalance returns the ETH balance of an address
-func (es *ethereumClient) GetBalance(address common.Address) (*big.Int, error) {
+func (es *ghostClient) GetBalance(address common.Address) (*big.Int, error) {
 	balance, err := es.client.BalanceAt(es.ctx, address, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get balance: %w", err)
@@ -301,7 +335,7 @@ func (es *ethereumClient) GetBalance(address common.Address) (*big.Int, error) {
 }
 
 // waitForTransaction waits for a transaction to be mined
-func (es *ethereumClient) waitForTransaction(hash common.Hash) (*TransactionReceipt, error) {
+func (es *ghostClient) waitForTransaction(hash common.Hash) (*TransactionReceipt, error) {
 	timeout := time.Duration(es.config.TransactionTimeoutSeconds()) * time.Second
 	tickerInterval := time.Duration(es.config.TransactionTickerSeconds()) * time.Second
 
@@ -323,7 +357,7 @@ func (es *ethereumClient) waitForTransaction(hash common.Hash) (*TransactionRece
 }
 
 // GetTransactionReceipt returns the receipt for a transaction if it exists
-func (es *ethereumClient) GetTransactionReceipt(hash common.Hash) (*TransactionReceipt, error) {
+func (es *ghostClient) GetTransactionReceipt(hash common.Hash) (*TransactionReceipt, error) {
 	receipt, err := es.client.TransactionReceipt(es.ctx, hash)
 	if err != nil {
 		return nil, fmt.Errorf("transaction not found or pending: %w", err)
@@ -347,7 +381,7 @@ func (es *ethereumClient) GetTransactionReceipt(hash common.Hash) (*TransactionR
 }
 
 // Close closes the Ethereum client connection
-func (es *ethereumClient) Close() {
+func (es *ghostClient) Close() {
 	if es.ctx != nil {
 		es.ctx.Done() // Signal context cancellation
 		es.ctx = nil  // Prevent further use

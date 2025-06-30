@@ -4,19 +4,19 @@ services:
   # TOR proxy for anonymous connections
   tor1:
     image: dperson/torproxy:latest
-    container_name: tor-proxy
+    container_name: tor1
     restart: unless-stopped
     ports:
       - "9050:9050"      # SOCKS5 proxy
       - "9051:9051"      # Control port
     # To use this proxy, set in your .env file:
-    # HTTP_PROXY=socks5://127.0.0.1:9050
-    # HTTPS_PROXY=socks5://127.0.0.1:9050
+    # HTTP_PROXY=socks5://127.0.0.1:9150
+    # HTTPS_PROXY=socks5://127.0.0.1:9150
 
   # Alternative TOR proxy
   tor2:
     image: peterdavehello/tor-socks-proxy:latest
-    container_name: tor-proxy-alt
+    container_name: tor2
     restart: unless-stopped
     ports:
       - "9050:9150"    # SOCKS5 proxy on different port

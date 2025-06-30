@@ -1,4 +1,4 @@
-# Gostheth
+# Gost-eth
 
 A Go client wrapper for Ethereum with online wallet capabilities, TOR proxy support, and smart fee calculation.
 
@@ -44,12 +44,12 @@ func main() {
 		log.Fatal("No accounts found")
 	}
 
-	// Create service with first account
-	service, err := pkg.NewEthereumClient(accounts[0], config)
+	// Create client with first account
+	client, err := pkg.NewEthereumClient(accounts[0], config)
 	if err != nil {
-		log.Fatal("Failed to create service:", err)
+		log.Fatal("Failed to create client:", err)
 	}
-	defer service.Close()
+	defer client.Close()
 
 	// Create transaction
 	tx := &pkg.Transaction{
@@ -60,12 +60,12 @@ func main() {
 	}
 
 	// Sign and send transaction
-	signedTx, err := service.SignTransaction(tx)
+	signedTx, err := client.SignTransaction(tx)
 	if err != nil {
 		log.Fatal("Failed to sign transaction:", err)
 	}
 
-	receipt, err := service.SendTransaction(signedTx)
+	receipt, err := client.SendTransaction(signedTx)
 	if err != nil {
 		log.Fatal("Failed to send transaction:", err)
 	}
@@ -113,24 +113,24 @@ ETH_TRANSACTION_TICKER_SECONDS=3     # 3 seconds
 
 ## API Reference
 
-### Service Interface
+### client Interface
 
 ```go
 type EthereumClient interface {
 	// SendTransaction sends a signed transaction to the network
 	SendTransaction(signedTx *types.Transaction) (*TransactionReceipt, error)
 
-	// SignTransaction signs a transaction with the service's private key
-	SignTransaction(tx *Transaction) (*types.Transaction, error)
+	// SignTransaction signs a transaction with the client's private key
+SignTransaction(tx *Transaction) (*types.Transaction, error)
 
 	// GetBalance returns the ETH balance of an address
 	GetBalance(address common.Address) (*big.Int, error)
 
 	// WaitForTransaction waits for a transaction to be mined and returns the receipt
-	WaitForTransaction(hash common.Hash) (*TransactionReceipt, error)
+WaitForTransaction(hash common.Hash) (*TransactionReceipt, error)
 
 	// GetTransactionReceipt returns the receipt for a transaction if it exists
-	GetTransactionReceipt(hash common.Hash) (*TransactionReceipt, error)
+GetTransactionReceipt(hash common.Hash) (*TransactionReceipt, error)
 
 	// Close closes the Ethereum client connection
 	Close()
@@ -205,7 +205,7 @@ type TransactionReceipt struct {
 ```go
 config, err := pkg.NewConfiguration()
 if err != nil {
-	log.Fatal(err)
+log.Fatal(err)
 }
 
 accounts := config.Accounts()
@@ -213,25 +213,25 @@ if len(accounts) < 2 {
 	log.Fatal("Need at least 2 accounts")
 }
 
-// Create service with specific account
-service, err := pkg.NewEthereumClient(accounts[0], config)
+// Create client with specific account
+client, err := pkg.NewEthereumClient(accounts[0], config)
 if err != nil {
-	log.Fatal(err)
+log.Fatal(err)
 }
-defer service.Close()
+defer client.Close()
 
 // Use account for transaction
 tx := &pkg.Transaction{
 	From: accounts[0].Address,
 	To:   accounts[1].Address,
-	// ... other fields
+// ... other fields
 }
 ```
 
 ### TOR Proxy Usage
 
 ```go
-// Set environment variables before creating service
+// Set environment variables before creating client
 os.Setenv("HTTP_PROXY", "socks5://127.0.0.1:9050")
 os.Setenv("HTTPS_PROXY", "socks5://127.0.0.1:9050")
 
@@ -240,11 +240,11 @@ if err != nil {
 	log.Fatal(err)
 }
 
-service, err := pkg.NewEthereumClient(accounts[0], config)
+client, err := pkg.NewEthereumClient(accounts[0], config)
 if err != nil {
-	log.Fatal(err)
+log.Fatal(err)
 }
-defer service.Close()
+defer client.Close()
 
 // All transactions will now go through TOR
 ```
@@ -261,11 +261,11 @@ if err != nil {
 	log.Fatal(err)
 }
 
-service, err := pkg.NewEthereumClient(accounts[0], config)
+client, err := pkg.NewEthereumClient(accounts[0], config)
 if err != nil {
-	log.Fatal(err)
+log.Fatal(err)
 }
-defer service.Close()
+defer client.Close()
 ```
 
 ### Complete Transaction Example
@@ -300,12 +300,12 @@ func main() {
 		log.Fatal("Need at least 2 accounts")
 	}
 
-	// Create service
-	service, err := pkg.NewEthereumClient(accounts[0], config)
+	// Create client
+	client, err := pkg.NewEthereumClient(accounts[0], config)
 	if err != nil {
-		log.Fatal("Failed to create service:", err)
+		log.Fatal("Failed to create client:", err)
 	}
-	defer service.Close()
+	defer client.Close()
 
 	// Create transaction
 	tx := &pkg.Transaction{
@@ -316,13 +316,13 @@ func main() {
 	}
 
 	// Sign transaction
-	signedTx, err := service.SignTransaction(tx)
+	signedTx, err := client.SignTransaction(tx)
 	if err != nil {
 		log.Fatal("Failed to sign transaction:", err)
 	}
 
 	// Send transaction
-	receipt, err := service.SendTransaction(signedTx)
+	receipt, err := client.SendTransaction(signedTx)
 	if err != nil {
 		log.Fatal("Failed to send transaction:", err)
 	}
@@ -330,7 +330,7 @@ func main() {
 	fmt.Printf("Transaction sent! Hash: %s\n", receipt.TxHash.Hex())
 
 	// Wait for confirmation
-	confirmedReceipt, err := service.WaitForTransaction(receipt.TxHash)
+	confirmedReceipt, err := client.WaitForTransaction(receipt.TxHash)
 	if err != nil {
 		log.Fatal("Transaction failed:", err)
 	}
@@ -397,28 +397,28 @@ The client wrapper provides comprehensive error handling:
 ```go
 config, err := pkg.NewConfiguration()
 if err != nil {
-	// Handle configuration errors
-	log.Fatal("Configuration error:", err)
+// Handle configuration errors
+log.Fatal("Configuration error:", err)
 }
 
-service, err := pkg.NewEthereumClient(accounts[0], config)
+client, err := pkg.NewEthereumClient(accounts[0], config)
 if err != nil {
-	// Handle service creation errors
-	log.Fatal("Service creation error:", err)
+	// Handle client creation errors
+	log.Fatal("client creation error:", err)
 }
-defer service.Close()
+defer client.Close()
 
-signedTx, err := service.SignTransaction(tx)
+signedTx, err := client.SignTransaction(tx)
 if err != nil {
 	// Handle transaction signing errors
-	switch {
-	case strings.Contains(err.Error(), "insufficient funds"):
-		log.Fatal("Not enough ETH for transaction")
-	case strings.Contains(err.Error(), "gas limit"):
-		log.Fatal("Gas limit too high")
-	default:
+switch {
+case strings.Contains(err.Error(), "insufficient funds"):
+log.Fatal("Not enough ETH for transaction")
+case strings.Contains(err.Error(), "gas limit"):
+log.Fatal("Gas limit too high")
+default:
 		log.Fatal("Transaction signing failed:", err)
-	}
+}
 }
 ```
 
@@ -431,7 +431,7 @@ if err != nil {
 - **Validation**: Always validate transaction parameters
 
 ### Performance
-- **Connection Pooling**: Reuse service instances
+- **Connection Pooling**: Reuse client instances
 - **Gas Optimization**: Use appropriate gas buffers
 - **Error Handling**: Implement proper retry logic
 - **Monitoring**: Track transaction success rates
