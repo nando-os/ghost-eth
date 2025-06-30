@@ -55,13 +55,30 @@ const (
 	DEFAULT_TRANSACTION_TICKER_SECONDS  = 3   // 3 seconds
 )
 
+type Config interface {
+	ChainID() int64
+	Accounts() []*Account
+	RPCURL() string
+
+	GasLimitBufferSimple() float64
+	GasLimitBufferComplex() float64
+
+	MaxFeePerGas() *big.Int
+	PriorityFeeMainnet() *big.Int
+	PriorityFeeBase() *big.Int
+	PriorityFeeDefault() *big.Int
+
+	TransactionTimeoutSeconds() int
+	TransactionTickerSeconds() int
+}
+
 type config struct {
 	chainId int64
 	acounts []*Account
 	rpcURL  string
 }
 
-func NewConfiguration() (*config, error) {
+func NewConfiguration() (Config, error) {
 
 	chainIDStr := os.Getenv(envChainID)
 	if chainIDStr == "" {

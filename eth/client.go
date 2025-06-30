@@ -35,15 +35,32 @@ type GhostClient interface {
 	Close()
 }
 
+// Add EthClient interface for testability
+type EthClient interface {
+	ChainID(ctx context.Context) (*big.Int, error)
+	BalanceAt(ctx context.Context, account common.Address, blockNumber *big.Int) (*big.Int, error)
+	SendTransaction(ctx context.Context, tx *types.Transaction) error
+	TransactionByHash(ctx context.Context, hash common.Hash) (*types.Transaction, bool, error)
+	TransactionReceipt(ctx context.Context, txHash common.Hash) (*types.Receipt, error)
+	PendingNonceAt(ctx context.Context, account common.Address) (uint64, error)
+	EstimateGas(ctx context.Context, msg ethereum.CallMsg) (uint64, error)
+	HeaderByNumber(ctx context.Context, number *big.Int) (*types.Header, error)
+	SuggestGasPrice(ctx context.Context) (*big.Int, error)
+	Close()
+}
+
+// Ensure *ethclient.Client implements EthClient
+var _ EthClient = (*ethclient.Client)(nil)
+
 type ghostClient struct {
-	client  *ethclient.Client
+	client  EthClient
 	ctx     context.Context
 	chainId int64
 	account *Account
-	config  *config
+	config  Config
 }
 
-func NewGhostClient(account *Account, cfg *config) (GhostClient, error) {
+func NewGhostClient(account *Account, cfg Config) (GhostClient, error) {
 	// Configure logging to output to stdout with timestamps
 	log.SetDefault(log.New())
 
@@ -101,7 +118,7 @@ func NewGhostClient(account *Account, cfg *config) (GhostClient, error) {
 		"account", account.Address.Hex())
 
 	return &ghostClient{
-		client:  client,
+		client:  client, // now EthClient
 		ctx:     ctx,
 		chainId: clientChainId.Int64(),
 		account: account,
@@ -155,6 +172,45 @@ func (es *ghostClient) WaitForTransaction(hash common.Hash) (*TransactionReceipt
 	}, nil
 }
 
+// estimateGasAndSetLimit estimates gas for the transaction and sets tx.GasLimit accordingly.
+func (es *ghostClient) estimateGasAndSetLimit(tx *Transaction) error {
+	msg := ethereum.CallMsg{
+		From:  tx.From,
+		To:    &tx.To,
+		Value: tx.Value,
+		Data:  tx.Data,
+	}
+
+	gasLimit, err := es.client.EstimateGas(es.ctx, msg)
+	if err != nil {
+		log.Error("Failed to estimate gas", "error", err)
+		return fmt.Errorf("failed to estimate gas: %w", err)
+	}
+
+	// Add dynamic buffer based on transaction complexity
+	var buffer float64
+	if len(tx.Data) == 0 {
+		buffer = es.config.GasLimitBufferSimple() // Configurable buffer for simple ETH transfers
+		log.Info("Using simple transaction buffer", "buffer", buffer)
+	} else {
+		buffer = es.config.GasLimitBufferComplex() // Configurable buffer for complex transactions
+		log.Info("Using complex transaction buffer", "buffer", buffer)
+	}
+	tx.GasLimit = uint64(float64(gasLimit) * buffer)
+	log.Info("Gas limit calculated", "estimated", gasLimit, "with_buffer", tx.GasLimit)
+
+	// Validate against network gas limit, transaction will get blocked if goes above it
+	header, err := es.client.HeaderByNumber(es.ctx, nil)
+	if err == nil && header.GasLimit > 0 {
+		maxGas := header.GasLimit * 2 / 3 // Use 2/3 of block gas limit
+		if tx.GasLimit > maxGas {
+			log.Error("Gas limit too high", "gas_limit", tx.GasLimit, "max_allowed", maxGas)
+			return fmt.Errorf("gas limit %d exceeds maximum allowed %d", tx.GasLimit, maxGas)
+		}
+	}
+	return nil
+}
+
 // SignTransaction signs a transaction with the client's private key
 func (es *ghostClient) SignTransaction(tx *Transaction) (*types.Transaction, error) {
 	log.Info("Starting transaction signing process", "from", tx.From.Hex(), "to", tx.To.Hex())
@@ -173,40 +229,9 @@ func (es *ghostClient) SignTransaction(tx *Transaction) (*types.Transaction, err
 
 	// Estimate gas if not provided
 	if tx.GasLimit == 0 {
-		log.Info("Estimating gas for transaction")
-		msg := ethereum.CallMsg{
-			From:  tx.From,
-			To:    &tx.To,
-			Value: tx.Value,
-			Data:  tx.Data,
-		}
-
-		gasLimit, err := es.client.EstimateGas(es.ctx, msg)
-		if err != nil {
+		if err := es.estimateGasAndSetLimit(tx); err != nil {
 			log.Error("Failed to estimate gas", "error", err)
-			return nil, fmt.Errorf("failed to estimate gas: %w", err)
-		}
-
-		// Add dynamic buffer based on transaction complexity
-		var buffer float64
-		if len(tx.Data) == 0 {
-			buffer = es.config.GasLimitBufferSimple() // Configurable buffer for simple ETH transfers
-			log.Info("Using simple transaction buffer", "buffer", buffer)
-		} else {
-			buffer = es.config.GasLimitBufferComplex() // Configurable buffer for complex transactions
-			log.Info("Using complex transaction buffer", "buffer", buffer)
-		}
-		tx.GasLimit = uint64(float64(gasLimit) * buffer)
-		log.Info("Gas limit calculated", "estimated", gasLimit, "with_buffer", tx.GasLimit)
-
-		// Validate against network gas limit, transaction will get blocked if goes above it
-		header, err := es.client.HeaderByNumber(es.ctx, nil)
-		if err == nil && header.GasLimit > 0 {
-			maxGas := header.GasLimit * 2 / 3 // Use 2/3 of block gas limit
-			if tx.GasLimit > maxGas {
-				log.Error("Gas limit too high", "gas_limit", tx.GasLimit, "max_allowed", maxGas)
-				return nil, fmt.Errorf("gas limit %d exceeds maximum allowed %d", tx.GasLimit, maxGas)
-			}
+			return nil, err
 		}
 	}
 
@@ -247,6 +272,7 @@ func (es *ghostClient) SignTransaction(tx *Transaction) (*types.Transaction, err
 			tx.Data,
 		)
 	} else {
+		log.Error("Transaction must specify either EIP-1559 fields or legacy GasPrice")
 		return nil, fmt.Errorf("transaction must specify either EIP-1559 fields (MaxFeePerGas, MaxPriorityFeePerGas) or legacy GasPrice")
 	}
 
@@ -270,8 +296,8 @@ func (es *ghostClient) calculateOptimalFees(tx *Transaction) error {
 		return fmt.Errorf("failed to get latest header: %w", err)
 	}
 
-	// Check if network supports EIP-1559
-	if header.BaseFee != nil && tx.MaxFeePerGas == nil || tx.MaxPriorityFeePerGas == nil {
+	// Fix: group EIP-1559 condition to avoid nil pointer dereference
+	if header.BaseFee != nil && (tx.MaxFeePerGas == nil || tx.MaxPriorityFeePerGas == nil) {
 		log.Info("Using EIP-1559 fee calculation")
 		// EIP-1559 network - calculate optimal fees
 		// Use fixed priority fee based on network

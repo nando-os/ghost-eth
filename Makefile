@@ -9,7 +9,7 @@ run:
 
 .PHONY: build
 build:
-	$(GO) build -mod=mod -o bin/example cmd/example/main.go
+	$(GO) build -mod=mod -o bin/example example/main.go
 
 .PHONY: build-docker-image
 build-docker-image:
@@ -68,3 +68,9 @@ tor-logs:
 .PHONY: run-example
 run-example:
 	./bin/example
+
+
+.PHONY: generate-mocks
+generate-mocks:
+	mockery --dir=eth --output=internal/mocks --filename=client.go --name=EthClient
+	mockery --dir=eth --output=internal/mocks --filename=client.go --name=GhostClient
