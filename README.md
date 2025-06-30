@@ -45,7 +45,7 @@ func main() {
 	}
 
 	// Create client with first account
-	client, err := pkg.NewEthereumClient(accounts[0], config)
+	client, err := pkg.NewGhostClient(accounts[0], config)
 	if err != nil {
 		log.Fatal("Failed to create client:", err)
 	}
@@ -116,21 +116,21 @@ ETH_TRANSACTION_TICKER_SECONDS=3     # 3 seconds
 ### client Interface
 
 ```go
-type EthereumClient interface {
+type GhostClient interface {
 	// SendTransaction sends a signed transaction to the network
 	SendTransaction(signedTx *types.Transaction) (*TransactionReceipt, error)
 
 	// SignTransaction signs a transaction with the client's private key
-SignTransaction(tx *Transaction) (*types.Transaction, error)
+	SignTransaction(tx *Transaction) (*types.Transaction, error)
 
 	// GetBalance returns the ETH balance of an address
 	GetBalance(address common.Address) (*big.Int, error)
 
 	// WaitForTransaction waits for a transaction to be mined and returns the receipt
-WaitForTransaction(hash common.Hash) (*TransactionReceipt, error)
+	WaitForTransaction(hash common.Hash) (*TransactionReceipt, error)
 
 	// GetTransactionReceipt returns the receipt for a transaction if it exists
-GetTransactionReceipt(hash common.Hash) (*TransactionReceipt, error)
+	GetTransactionReceipt(hash common.Hash) (*TransactionReceipt, error)
 
 	// Close closes the Ethereum client connection
 	Close()
@@ -214,7 +214,7 @@ if len(accounts) < 2 {
 }
 
 // Create client with specific account
-client, err := pkg.NewEthereumClient(accounts[0], config)
+client, err := pkg.NewGhostClient(accounts[0], config)
 if err != nil {
 log.Fatal(err)
 }
@@ -240,7 +240,7 @@ if err != nil {
 	log.Fatal(err)
 }
 
-client, err := pkg.NewEthereumClient(accounts[0], config)
+client, err := pkg.NewGhostClient(accounts[0], config)
 if err != nil {
 log.Fatal(err)
 }
@@ -261,7 +261,7 @@ if err != nil {
 	log.Fatal(err)
 }
 
-client, err := pkg.NewEthereumClient(accounts[0], config)
+client, err := pkg.NewGhostClient(accounts[0], config)
 if err != nil {
 log.Fatal(err)
 }
@@ -301,7 +301,7 @@ func main() {
 	}
 
 	// Create client
-	client, err := pkg.NewEthereumClient(accounts[0], config)
+	client, err := pkg.NewGhostClient(accounts[0], config)
 	if err != nil {
 		log.Fatal("Failed to create client:", err)
 	}
@@ -401,7 +401,7 @@ if err != nil {
 log.Fatal("Configuration error:", err)
 }
 
-client, err := pkg.NewEthereumClient(accounts[0], config)
+client, err := pkg.NewGhostClient(accounts[0], config)
 if err != nil {
 	// Handle client creation errors
 	log.Fatal("client creation error:", err)
