@@ -7,7 +7,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/ethereum/go-ethereum/log"
+	"github.com/sirupsen/logrus"
 
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
@@ -58,11 +58,10 @@ type ghostClient struct {
 	chainId int64
 	account *Account
 	config  Config
+	log     *logrus.Logger
 }
 
-func NewGhostClient(account *Account, cfg Config) (GhostClient, error) {
-	// Configure logging to output to stdout with timestamps
-	log.SetDefault(log.New())
+func NewGhostClient(account *Account, cfg Config, l *logrus.Logger) (GhostClient, error) {
 
 	ctx := context.Background()
 	chainId := account.ChainId
@@ -86,23 +85,23 @@ func NewGhostClient(account *Account, cfg Config) (GhostClient, error) {
 
 	// Log proxy usage if configured
 	if os.Getenv("HTTP_PROXY") != "" || os.Getenv("HTTPS_PROXY") != "" {
-		log.Info("Connected to Ethereum network via proxy",
-			"http_proxy", os.Getenv("HTTP_PROXY"),
-			"https_proxy", os.Getenv("HTTPS_PROXY"))
+		l.WithFields(logrus.Fields{
+			"http_proxy":  os.Getenv("HTTP_PROXY"),
+			"https_proxy": os.Getenv("HTTPS_PROXY"),
+		}).Info("Connected to Ethereum network via proxy")
 	} else {
-		log.Info("Connected to Ethereum network directly")
+		l.Info("Connected to Ethereum network directly")
 	}
 
 	// -- Connect to Ethereum client
-	// HTTP_PROXY and HTTPS_PROXY environment variables are automatically used by ethclient.DialContext
-	log.Info("Connecting to Ethereum RPC", "url", cfg.RPCURL())
+	l.WithField("url", cfg.RPCURL()).Info("Connecting to Ethereum RPC")
 	client, err := ethclient.DialContext(ctx, cfg.RPCURL())
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to Ethereum network: %w", err)
 	}
 
-	// -- Verify conection and get chain ID
-	log.Info("Verifying connection and getting chain ID")
+	// -- Verify connection and get chain ID
+	l.Info("Verifying connection and getting chain ID")
 	clientChainId, err := client.ChainID(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get chain ID: %w", err)
@@ -113,9 +112,10 @@ func NewGhostClient(account *Account, cfg Config) (GhostClient, error) {
 		return nil, fmt.Errorf("expected chain ID %d, got %d", chainId, clientChainId.Int64())
 	}
 
-	log.Info("Successfully connected to Ethereum network",
-		"chain_id", clientChainId.Int64(),
-		"account", account.Address.Hex())
+	l.WithFields(logrus.Fields{
+		"chain_id": clientChainId.Int64(),
+		"account":  account.Address.Hex(),
+	}).Info("Successfully connected to Ethereum network")
 
 	return &ghostClient{
 		client:  client, // now EthClient
@@ -123,21 +123,22 @@ func NewGhostClient(account *Account, cfg Config) (GhostClient, error) {
 		chainId: clientChainId.Int64(),
 		account: account,
 		config:  cfg,
+		log:     l,
 	}, nil
 }
 
 // SendTransaction sends a signed transaction to the network
 func (es *ghostClient) SendTransaction(signedTx *types.Transaction) (*TransactionReceipt, error) {
-	log.Info("Sending transaction to network", "hash", signedTx.Hash().Hex())
+	es.log.WithField("hash", signedTx.Hash().Hex()).Info("Sending transaction to network")
 
 	// Send the transaction
 	err := es.client.SendTransaction(es.ctx, signedTx)
 	if err != nil {
-		log.Error("Failed to send transaction", "error", err)
+		es.log.WithError(err).Error("Failed to send transaction")
 		return nil, fmt.Errorf("failed to send transaction: %w", err)
 	}
 
-	log.Info("Transaction sent successfully", "hash", signedTx.Hash().Hex())
+	es.log.WithField("hash", signedTx.Hash().Hex()).Info("Transaction sent successfully")
 
 	// Return immediately with transaction hash
 	return &TransactionReceipt{
@@ -183,7 +184,7 @@ func (es *ghostClient) estimateGasAndSetLimit(tx *Transaction) error {
 
 	gasLimit, err := es.client.EstimateGas(es.ctx, msg)
 	if err != nil {
-		log.Error("Failed to estimate gas", "error", err)
+		es.log.WithError(err).Error("Failed to estimate gas")
 		return fmt.Errorf("failed to estimate gas: %w", err)
 	}
 
@@ -191,20 +192,26 @@ func (es *ghostClient) estimateGasAndSetLimit(tx *Transaction) error {
 	var buffer float64
 	if len(tx.Data) == 0 {
 		buffer = es.config.GasLimitBufferSimple() // Configurable buffer for simple ETH transfers
-		log.Info("Using simple transaction buffer", "buffer", buffer)
+		es.log.WithField("buffer", buffer).Info("Using simple transaction buffer")
 	} else {
 		buffer = es.config.GasLimitBufferComplex() // Configurable buffer for complex transactions
-		log.Info("Using complex transaction buffer", "buffer", buffer)
+		es.log.WithField("buffer", buffer).Info("Using complex transaction buffer")
 	}
 	tx.GasLimit = uint64(float64(gasLimit) * buffer)
-	log.Info("Gas limit calculated", "estimated", gasLimit, "with_buffer", tx.GasLimit)
+	es.log.WithFields(logrus.Fields{
+		"estimated":   gasLimit,
+		"with_buffer": tx.GasLimit,
+	}).Info("Gas limit calculated")
 
 	// Validate against network gas limit, transaction will get blocked if goes above it
 	header, err := es.client.HeaderByNumber(es.ctx, nil)
 	if err == nil && header.GasLimit > 0 {
 		maxGas := header.GasLimit * 2 / 3 // Use 2/3 of block gas limit
 		if tx.GasLimit > maxGas {
-			log.Error("Gas limit too high", "gas_limit", tx.GasLimit, "max_allowed", maxGas)
+			es.log.WithFields(logrus.Fields{
+				"gas_limit":   tx.GasLimit,
+				"max_allowed": maxGas,
+			}).Error("Gas limit too high")
 			return fmt.Errorf("gas limit %d exceeds maximum allowed %d", tx.GasLimit, maxGas)
 		}
 	}
@@ -213,33 +220,36 @@ func (es *ghostClient) estimateGasAndSetLimit(tx *Transaction) error {
 
 // SignTransaction signs a transaction with the client's private key
 func (es *ghostClient) SignTransaction(tx *Transaction) (*types.Transaction, error) {
-	log.Info("Starting transaction signing process", "from", tx.From.Hex(), "to", tx.To.Hex())
+	es.log.WithFields(logrus.Fields{
+		"from": tx.From.Hex(),
+		"to":   tx.To.Hex(),
+	}).Info("Starting transaction signing process")
 
 	// Get nonce if not provided
 	if tx.Nonce == 0 {
-		log.Info("Getting nonce for address", "address", tx.From.Hex())
+		es.log.WithField("address", tx.From.Hex()).Info("Getting nonce for address")
 		nonce, err := es.client.PendingNonceAt(es.ctx, tx.From)
 		if err != nil {
-			log.Error("Failed to get nonce", "error", err)
+			es.log.WithError(err).Error("Failed to get nonce")
 			return nil, fmt.Errorf("failed to get nonce: %w", err)
 		}
 		tx.Nonce = nonce
-		log.Info("Got nonce", "nonce", nonce)
+		es.log.WithField("nonce", nonce).Info("Got nonce")
 	}
 
 	// Estimate gas if not provided
 	if tx.GasLimit == 0 {
 		if err := es.estimateGasAndSetLimit(tx); err != nil {
-			log.Error("Failed to estimate gas", "error", err)
+			es.log.WithError(err).Error("Failed to estimate gas")
 			return nil, err
 		}
 	}
 
 	// Calulate fees based on network conditions
-	log.Info("Calculating optimal fees")
+	es.log.Info("Calculating optimal fees")
 	err := es.calculateOptimalFees(tx)
 	if err != nil {
-		log.Error("Failed to calculate fees", "error", err)
+		es.log.WithError(err).Error("Failed to calculate fees")
 		return nil, fmt.Errorf("failed to calculate fees: %w", err)
 	}
 
@@ -247,9 +257,10 @@ func (es *ghostClient) SignTransaction(tx *Transaction) (*types.Transaction, err
 
 	if tx.MaxFeePerGas != nil && tx.MaxPriorityFeePerGas != nil {
 		// EIP-1559 transaction
-		log.Info("Creating EIP-1559 transaction",
-			"max_fee_per_gas", tx.MaxFeePerGas.String(),
-			"max_priority_fee_per_gas", tx.MaxPriorityFeePerGas.String())
+		es.log.WithFields(logrus.Fields{
+			"max_fee_per_gas":          tx.MaxFeePerGas.String(),
+			"max_priority_fee_per_gas": tx.MaxPriorityFeePerGas.String(),
+		}).Info("Creating EIP-1559 transaction")
 		ethereumTx = types.NewTx(&types.DynamicFeeTx{
 			ChainID:   big.NewInt(es.chainId),
 			Nonce:     tx.Nonce,
@@ -262,7 +273,7 @@ func (es *ghostClient) SignTransaction(tx *Transaction) (*types.Transaction, err
 		})
 	} else if tx.GasPrice != nil {
 		// Legacy transaction
-		log.Info("Creating legacy transaction", "gas_price", tx.GasPrice.String())
+		es.log.WithField("gas_price", tx.GasPrice.String()).Info("Creating legacy transaction")
 		ethereumTx = types.NewTransaction(
 			tx.Nonce,
 			tx.To,
@@ -272,19 +283,19 @@ func (es *ghostClient) SignTransaction(tx *Transaction) (*types.Transaction, err
 			tx.Data,
 		)
 	} else {
-		log.Error("Transaction must specify either EIP-1559 fields or legacy GasPrice")
+		es.log.Error("Transaction must specify either EIP-1559 fields or legacy GasPrice")
 		return nil, fmt.Errorf("transaction must specify either EIP-1559 fields (MaxFeePerGas, MaxPriorityFeePerGas) or legacy GasPrice")
 	}
 
 	// Sign the transaction
-	log.Info("Signing transaction")
+	es.log.Info("Signing transaction")
 	signedTx, err := types.SignTx(ethereumTx, types.LatestSignerForChainID(big.NewInt(es.chainId)), es.account.PrivateKey)
 	if err != nil {
-		log.Error("Failed to sign transaction", "error", err)
+		es.log.WithError(err).Error("Failed to sign transaction")
 		return nil, fmt.Errorf("failed to sign transaction: %w", err)
 	}
 
-	log.Info("Transaction signed successfully", "hash", signedTx.Hash().Hex())
+	es.log.WithField("hash", signedTx.Hash().Hex()).Info("Transaction signed successfully")
 	return signedTx, nil
 }
 
@@ -298,7 +309,7 @@ func (es *ghostClient) calculateOptimalFees(tx *Transaction) error {
 
 	// Fix: group EIP-1559 condition to avoid nil pointer dereference
 	if header.BaseFee != nil && (tx.MaxFeePerGas == nil || tx.MaxPriorityFeePerGas == nil) {
-		log.Info("Using EIP-1559 fee calculation")
+		es.log.Info("Using EIP-1559 fee calculation")
 		// EIP-1559 network - calculate optimal fees
 		// Use fixed priority fee based on network
 		tx.MaxPriorityFeePerGas = es.getFixedPriorityFee()
@@ -308,7 +319,7 @@ func (es *ghostClient) calculateOptimalFees(tx *Transaction) error {
 		maxFee.Add(maxFee, tx.MaxPriorityFeePerGas)
 		tx.MaxFeePerGas = maxFee
 	} else {
-		log.Info("Using legacy fee calculation")
+		es.log.Info("Using legacy fee calculation")
 		// Legacy network - use gas price
 		if tx.GasPrice == nil {
 			gasPrice, err := es.client.SuggestGasPrice(es.ctx)

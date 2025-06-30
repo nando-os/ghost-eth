@@ -2,9 +2,10 @@ package main
 
 import (
 	"fmt"
-	"log"
 	"math/big"
 	"os"
+
+	"github.com/sirupsen/logrus"
 
 	"github.com/nando-os/gostheth/eth"
 
@@ -12,10 +13,10 @@ import (
 	"github.com/joho/godotenv"
 )
 
-func setup() {
+func setup(log *logrus.Logger) {
 	err := godotenv.Load(".env")
 	if err != nil {
-		fmt.Printf("Warning: error loading .env file: %+v\n", err)
+		log.WithError(err).Warn("Warning: error loading .env file")
 		return
 	}
 
@@ -25,44 +26,54 @@ func setup() {
 	// The client will automatically use the proxy when these are set
 
 	// Log environment variables for debugging
-	fmt.Printf("Environment check:\n")
-	fmt.Printf("  ETH_RPC_URL: %s\n", os.Getenv("ETH_RPC_URL"))
-	fmt.Printf("  ETH_CHAIN_ID: %s\n", os.Getenv("ETH_CHAIN_ID"))
-	fmt.Printf("  HTTP_PROXY: %s\n", os.Getenv("HTTP_PROXY"))
-	fmt.Printf("  HTTPS_PROXY: %s\n", os.Getenv("HTTPS_PROXY"))
-	fmt.Printf("  ETH_ACCOUNTS: %s\n", os.Getenv("ETH_ACCOUNTS"))
+	log.WithFields(logrus.Fields{
+		"ETH_RPC_URL":  os.Getenv("ETH_RPC_URL"),
+		"ETH_CHAIN_ID": os.Getenv("ETH_CHAIN_ID"),
+		"HTTP_PROXY":   os.Getenv("HTTP_PROXY"),
+		"HTTPS_PROXY":  os.Getenv("HTTPS_PROXY"),
+		"ETH_ACCOUNTS": os.Getenv("ETH_ACCOUNTS"),
+	}).Info("Environment check")
 }
 
 func main() {
+	// --
+	// Initialize logrus logger
+	log := logrus.New()
+	log.SetFormatter(&logrus.JSONFormatter{}) // Use JSON format for logs
+	log.SetOutput(os.Stdout)                  // Output logs to stdout
+	log.SetLevel(logrus.InfoLevel)            // Set log level to Info
+
 	// --- Setup ---
-	setup()
+	setup(log)
 
 	// --- Load Configuration ---
 	fmt.Println("Loading configuration...")
 	config, err := eth.NewConfiguration()
 	if err != nil {
-		log.Fatal("Failed to load configuration:", err)
+		log.WithError(err).Fatal("Failed to load configuration")
 	}
-	fmt.Printf("Configuration loaded successfully. Chain ID: %d\n", config.ChainID())
+	log.WithField("chain_id", config.ChainID()).Info("Configuration loaded successfully")
 
 	// --- Get Account ---
 	accounts := config.Accounts()
 	if len(accounts) == 0 {
 		log.Fatal("No accounts found in configuration")
 	}
-	fmt.Printf("Found %d accounts\n", len(accounts))
+	log.WithField("num_accounts", len(accounts)).Info("Found accounts")
 
 	sender := accounts[0]
 	receiver := accounts[1]
 
-	fmt.Printf("Sender: %s\n", sender.Address.Hex())
-	fmt.Printf("Receiver: %s\n", receiver.Address.Hex())
+	log.WithFields(logrus.Fields{
+		"sender":   sender.Address.Hex(),
+		"receiver": receiver.Address.Hex(),
+	}).Info("Account addresses")
 
 	// --- Create client ---
 	fmt.Println("Creating Ethereum client...")
-	client, err := eth.NewGhostClient(sender, config)
+	client, err := eth.NewGhostClient(sender, config, log)
 	if err != nil {
-		log.Fatal("Failed to create client:", err)
+		log.WithError(err).Fatal("Failed to create client")
 	}
 	defer client.(interface{ Close() }).Close()
 	fmt.Println("Ethereum client created successfully")
@@ -72,10 +83,11 @@ func main() {
 	value := big.NewInt(1e15) // 0.001 ETH in wei
 	recipient := common.HexToAddress(receiver.Address.String())
 
-	fmt.Printf("Creating transaction: %s ETH from %s to %s\n",
-		new(big.Float).Quo(new(big.Float).SetInt(value), big.NewFloat(1e18)).Text('f', 6),
-		sender.Address.Hex(),
-		recipient.Hex())
+	log.WithFields(logrus.Fields{
+		"amount_eth": new(big.Float).Quo(new(big.Float).SetInt(value), big.NewFloat(1e18)).Text('f', 6),
+		"from":       sender.Address.Hex(),
+		"to":         recipient.Hex(),
+	}).Info("Creating transaction")
 
 	tx := &eth.Transaction{
 		From:  sender.Address,
@@ -88,35 +100,37 @@ func main() {
 	fmt.Println("Signing transaction...")
 	signedTx, err := client.SignTransaction(tx)
 	if err != nil {
-		log.Fatal("Failed to sign transaction:", err)
+		log.WithError(err).Fatal("Failed to sign transaction")
 	}
-	fmt.Printf("Transaction signed successfully. Hash: %s\n", signedTx.Hash().Hex())
+	log.WithField("tx_hash", signedTx.Hash().Hex()).Info("Transaction signed successfully")
 
 	// --- Send Transaction (Non-bloking) ---
 	fmt.Println("Sending transaction...")
 	receipt, err := client.SendTransaction(signedTx)
 	if err != nil {
-		log.Fatal("Failed to send transaction:", err)
+		log.WithError(err).Fatal("Failed to send transaction")
 	}
 
-	fmt.Printf("Transaction sent! Hash: %s\n", receipt.TxHash.Hex())
-	fmt.Printf("Status: %d (0 = pending)\n", receipt.Status)
-	fmt.Printf("From: %s\n", receipt.From.Hex())
-	fmt.Printf("To: %s\n", receipt.To.Hex())
+	log.WithFields(logrus.Fields{
+		"tx_hash": receipt.TxHash.Hex(),
+		"status":  receipt.Status,
+		"from":    receipt.From.Hex(),
+		"to":      receipt.To.Hex(),
+	}).Info("Transaction sent")
 
 	// --- Wait for Confirmation (Optional) ---
 	fmt.Println("Waiting for transaction confirmation...")
 	confirmedReceipt, err := client.WaitForTransaction(receipt.TxHash)
 	if err != nil {
-		log.Fatal("Transaction failed:", err)
+		log.WithError(err).Fatal("Transaction failed")
 	}
 
-	fmt.Printf("Transaction confirmed!\n")
-	fmt.Printf("Block Number: %d\n", confirmedReceipt.BlockNumber)
-	fmt.Printf("Gas Used: %d\n", confirmedReceipt.GasUsed)
-	etherumGasPrice := big.NewInt(0).Mul(big.NewInt(int64(confirmedReceipt.GasUsed)), signedTx.GasPrice()).Uint64()
-	fmt.Printf("Gas Price: %d wei\n", etherumGasPrice)
-	fmt.Printf("Status: %d (1 = success, 0 = failed)\n", confirmedReceipt.Status)
+	log.WithFields(logrus.Fields{
+		"block_number": confirmedReceipt.BlockNumber,
+		"gas_used":     confirmedReceipt.GasUsed,
+		"gas_price":    big.NewInt(0).Mul(big.NewInt(int64(confirmedReceipt.GasUsed)), signedTx.GasPrice()).Uint64(),
+		"status":       confirmedReceipt.Status,
+	}).Info("Transaction confirmed")
 
 	if confirmedReceipt.Status == 1 {
 		fmt.Println("✅ Transaction successful!")
@@ -128,8 +142,8 @@ func main() {
 	fmt.Println("Checking balance...")
 	balance, err := client.GetBalance(sender.Address)
 	if err != nil {
-		fmt.Printf("Failed to get balance: %v\n", err)
+		log.WithError(err).Warn("Failed to get balance")
 	} else {
-		fmt.Printf("Current balance: %s wei\n", balance.String())
+		log.WithField("balance_wei", balance.String()).Info("Current balance")
 	}
 }

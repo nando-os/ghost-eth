@@ -7,6 +7,7 @@ toolchain go1.23.10
 require (
 	github.com/ethereum/go-ethereum v1.15.11
 	github.com/joho/godotenv v1.5.1
+	github.com/sirupsen/logrus v1.9.3
 	github.com/stretchr/testify v1.10.0
 )
 
