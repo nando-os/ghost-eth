@@ -1,4 +1,4 @@
-# Gost-eth
+# Ghost-eth
 
 A Go client wrapper for Ethereum with online wallet capabilities, TOR proxy support, and smart fee calculation.
 
@@ -16,7 +16,7 @@ A Go client wrapper for Ethereum with online wallet capabilities, TOR proxy supp
 ### Installation
 
 ```bash
-go get github.com/nando-os/gostheth
+go get github.com/nando-os/ghost-eth
 ```
 
 ### Basic Usage
@@ -28,7 +28,7 @@ import (
 	"log"
 	"math/big"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/nando-os/gostheth/pkg"
+	"github.com/nando-os/ghost-eth/"
 )
 
 func main() {
@@ -278,7 +278,7 @@ import (
 	"log"
 	"math/big"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/nando-os/gostheth/pkg"
+	"github.com/nando-os/ghost-eth/pkg"
 	"github.com/joho/godotenv"
 )
 
@@ -456,5 +456,5 @@ MIT License - see [LICENSE](LICENSE) file for details.
 
 ## Support
 
-- **Issues**: [GitHub Issues](https://github.com/nando-os/gostheth/issues)
+- **Issues**: [GitHub Issues](https://github.com/nando-os/ghost-eth/issues)
 - **Examples**: [Examples Directory](examples/)
