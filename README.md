@@ -28,7 +28,7 @@ import (
 	"log"
 	"math/big"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/nando-os/ghost-eth/"
+	"github.com/nando-os/ghost-eth/eth"
 )
 
 func main() {
@@ -278,7 +278,7 @@ import (
 	"log"
 	"math/big"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/nando-os/ghost-eth/pkg"
+	"github.com/nando-os/ghost-eth/eth"
 	"github.com/joho/godotenv"
 )
 
