@@ -7,7 +7,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 
-	"github.com/nando-os/gostheth/eth"
+	"github.com/nando-os/ghost-eth/eth"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/joho/godotenv"
