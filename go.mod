@@ -1,4 +1,4 @@
-module github.com/nando-os/gostheth
+module github.com/nando-os/ghost-eth
 
 go 1.23.0
 
