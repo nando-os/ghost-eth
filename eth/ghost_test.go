@@ -7,22 +7,15 @@ import (
 	"math/big"
 	"testing"
 
+	"io"
+
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	internalmocks "github.com/nando-os/gostheth/internal/mocks"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 )
-
-// Helper type for mocking To() on types.Transaction
-// Used in GetTransactionReceipt test
-// (placed here for test scope)
-type txWithTo struct {
-	types.Transaction
-	to common.Address
-}
-
-func (t *txWithTo) To() *common.Address { return &t.to }
 
 func testAccountAndConfig() (*Account, *config) {
 	accs := []*Account{
@@ -37,6 +30,12 @@ func testAccountAndConfig() (*Account, *config) {
 	return accs[0], cfg
 }
 
+func newTestLogger() *logrus.Logger {
+	logger := logrus.New()
+	logger.SetOutput(io.Discard)
+	return logger
+}
+
 func TestGhostClient_GetBalance(t *testing.T) {
 	acc, cfg := testAccountAndConfig()
 	mockClient := &internalmocks.EthClient{}
@@ -48,6 +47,7 @@ func TestGhostClient_GetBalance(t *testing.T) {
 		chainId: 1,
 		account: acc,
 		config:  cfg,
+		log:     newTestLogger(),
 	}
 	bal, err := gc.GetBalance(acc.Address)
 	assert.NoError(t, err)
@@ -65,6 +65,7 @@ func TestGhostClient_GetBalance_Error(t *testing.T) {
 		chainId: 1,
 		account: acc,
 		config:  cfg,
+		log:     newTestLogger(),
 	}
 	_, err := gc.GetBalance(acc.Address)
 	assert.Error(t, err)
@@ -81,6 +82,7 @@ func TestGhostClient_Close(t *testing.T) {
 		chainId: 1,
 		account: acc,
 		config:  cfg,
+		log:     newTestLogger(),
 	}
 	gc.Close()
 	mockClient.AssertExpectations(t)
@@ -100,6 +102,7 @@ func TestGhostClient_EstimateGasAndSetLimit_Simple(t *testing.T) {
 		chainId: 1,
 		account: acc,
 		config:  cfg,
+		log:     newTestLogger(),
 	}
 	tx := &Transaction{
 		From: acc.Address,
@@ -125,6 +128,7 @@ func TestGhostClient_EstimateGasAndSetLimit_Complex(t *testing.T) {
 		chainId: 1,
 		account: acc,
 		config:  cfg,
+		log:     newTestLogger(),
 	}
 	tx := &Transaction{
 		From: acc.Address,
@@ -149,6 +153,7 @@ func TestGhostClient_EstimateGasAndSetLimit_Errors(t *testing.T) {
 		chainId: 1,
 		account: acc,
 		config:  cfg,
+		log:     newTestLogger(),
 	}
 	tx := &Transaction{
 		From: acc.Address,
@@ -190,6 +195,7 @@ func TestGhostClient_CalculateOptimalFees_EIP1559(t *testing.T) {
 		chainId: 1,
 		account: acc,
 		config:  cfg,
+		log:     newTestLogger(),
 	}
 	err := gc.calculateOptimalFees(tx)
 	assert.NoError(t, err)
@@ -217,6 +223,7 @@ func TestGhostClient_CalculateOptimalFees_Legacy(t *testing.T) {
 		chainId: 1,
 		account: acc,
 		config:  cfg,
+		log:     newTestLogger(),
 	}
 	err := gc.calculateOptimalFees(tx)
 	assert.NoError(t, err)
@@ -238,6 +245,7 @@ func TestGhostClient_CalculateOptimalFees_HeaderError(t *testing.T) {
 		chainId: 1,
 		account: acc,
 		config:  cfg,
+		log:     newTestLogger(),
 	}
 	err := gc.calculateOptimalFees(tx)
 	assert.Error(t, err)
@@ -260,6 +268,7 @@ func TestGhostClient_CalculateOptimalFees_GasPriceError(t *testing.T) {
 		chainId: 1,
 		account: acc,
 		config:  cfg,
+		log:     newTestLogger(),
 	}
 	err := gc.calculateOptimalFees(tx)
 	assert.Error(t, err)
@@ -281,6 +290,7 @@ func TestGhostClient_CalculateOptimalFees_MaxFeeTooHigh(t *testing.T) {
 		chainId: 1,
 		account: acc,
 		config:  cfg,
+		log:     newTestLogger(),
 	}
 	err := gc.calculateOptimalFees(tx)
 	assert.Error(t, err)
@@ -299,7 +309,9 @@ func TestGhostClient_GetTransactionReceipt_Success(t *testing.T) {
 		Logs:        []*types.Log{},
 	}
 	to := common.HexToAddress("0x0000000000000000000000000000000000000002")
-	tx := &txWithTo{to: to}
+	tx := types.NewTx(&types.DynamicFeeTx{
+		To: &to,
+	})
 	mockClient.On("TransactionReceipt", mock.Anything, hash).Return(receipt, nil)
 	mockClient.On("TransactionByHash", mock.Anything, hash).Return(tx, true, nil)
 	gc := &ghostClient{
@@ -308,6 +320,7 @@ func TestGhostClient_GetTransactionReceipt_Success(t *testing.T) {
 		chainId: 1,
 		account: acc,
 		config:  cfg,
+		log:     newTestLogger(),
 	}
 	result, err := gc.GetTransactionReceipt(hash)
 	assert.NoError(t, err)
@@ -327,6 +340,7 @@ func TestGhostClient_GetTransactionReceipt_Error(t *testing.T) {
 		chainId: 1,
 		account: acc,
 		config:  cfg,
+		log:     newTestLogger(),
 	}
 	_, err := gc.GetTransactionReceipt(hash)
 	assert.Error(t, err)
@@ -356,6 +370,7 @@ func TestGhostClient_SignTransaction_EIP1559_Success(t *testing.T) {
 		chainId: 1,
 		account: acc,
 		config:  cfg,
+		log:     newTestLogger(),
 	}
 	// Patch types.SignTx to avoid real signing (not needed for this test)
 	// We'll just check that no error is returned and fields are set
@@ -378,6 +393,7 @@ func TestGhostClient_SignTransaction_Errors(t *testing.T) {
 		chainId: 1,
 		account: acc,
 		config:  cfg,
+		log:     newTestLogger(),
 	}
 	tx := &Transaction{
 		From: acc.Address,
